@@ -1,0 +1,11 @@
+#!/bin/bash
+
+count=5000
+size=1000
+
+echo "       Executable          Test   Count   Size Time_m Time_f   Time        Mem"
+echo "=============================================================================="
+./testheapmgr1 LIFO_fixed $count $size
+./testheapmgr1 FIFO_fixed $count $size
+./testheapmgr1 LIFO_random $count $size
+./testheapmgr1 FIFO_random $count $size

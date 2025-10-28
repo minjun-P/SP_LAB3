@@ -38,6 +38,7 @@ void header_chunk_init(Chunk_T h_c) {
     h_c->status |= FLAG_HEADER;
 }
 bool chunk_is_allocated(Chunk_T c) {
+    assert(c); // not null인 것만 하도록. 외부에서 거르도록
     // 먼저 이 친구가 헤더인지 푸터인지 확인
     int is_header = chunk_is_header(c);
     if (is_header) {
@@ -50,6 +51,7 @@ bool chunk_is_allocated(Chunk_T c) {
 }
 
 bool chunk_is_header(Chunk_T c) {
+    assert(c); // not null인 것만 하도록. 외부에서 거르도록
     return (c->status & FLAG_HEADER) != 0;
 }
 
@@ -68,8 +70,7 @@ void header_chunk_set_status_allocated(Chunk_T h_c) {
 void header_chunk_set_status_free(Chunk_T h_c) {
     // 항상 헤더에서만 이 명령을 실행할 수 있게 하자.
     assert(chunk_is_header(h_c));
-    // 이 함수를 실행했는데, 얘가 이미 Free면 미스
-    assert(!chunk_is_allocated(h_c));
+    assert(chunk_is_allocated(h_c));
     // 이거 하는데 span이 2 이하면 좀 이상한 애임.
     assert(chunk_get_span_units(h_c) > 2);
 
@@ -84,8 +85,6 @@ void  header_chunk_set_span_units(Chunk_T h_c, int span_u) {
     // 항상 헤더에서만 이 명령을 실행할 수 있게 하자.
     assert(chunk_is_header(h_c)); 
     // span_u가 기존보다 크냐 작냐에 따라서 로직이 좀 달라짐
-    int old_span = h_c->span;
-    assert(old_span != span_u); // 같을거면 왜 실행함?
     Chunk_T f_c = h_c + (span_u -1);;
     h_c->span = span_u; 
     f_c->span = span_u;
@@ -102,11 +101,9 @@ Chunk_T header_chunk_get_next_free(Chunk_T h_c) {
 }
 
 void header_chunk_set_next_free(Chunk_T h_c, Chunk_T next_h_c) {
-    assert(chunk_is_header(h_c));
-    assert(!chunk_is_allocated(h_c));
-
-    assert(chunk_is_header(next_h_c));
-    assert(!chunk_is_allocated(next_h_c));
+    assert(h_c && chunk_is_header(h_c));
+    assert(!next_h_c || chunk_is_header(next_h_c));
+    assert(!next_h_c ||!chunk_is_allocated(next_h_c));
 
     h_c -> ptr = next_h_c;
 }
@@ -119,11 +116,10 @@ Chunk_T footer_chunk_get_prev_free(Chunk_T f_c) {
 }
 
 void footer_chunk_set_prev_free(Chunk_T f_c, Chunk_T prev_h_c) {
-    assert(!chunk_is_header(f_c));
-    assert(!chunk_is_allocated(f_c));
+    assert(f_c && !chunk_is_header(f_c));
 
-    assert(chunk_is_header(prev_h_c));
-    assert(!chunk_is_allocated(prev_h_c));
+    assert(!prev_h_c || chunk_is_header(prev_h_c));
+    assert(!prev_h_c || !chunk_is_allocated(prev_h_c));
 
     f_c->ptr = prev_h_c;
 }
@@ -134,8 +130,9 @@ Chunk_T chunk_get_prev(Chunk_T c, void *start, void *end) {
     assert((void *)c >= start);
     // 이전 블록 푸터로 가기 
     Chunk_T p_footer = c - 1;
-    
-    assert((void *)p_footer >= start);
+    if ((void *)p_footer < start) {
+        return NULL;
+    }
 
     // 여기서 이전 블록의 헤더로 가기, span 참조
     int p_span = p_footer->span;

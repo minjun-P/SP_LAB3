@@ -12,4 +12,4 @@ echo "       Executable          Test   Count   Size Time_m Time_f   Time       
 ./testheapimp ./testheapmgrkr
 ./testheapimp ./testheapmgrbase
 ./testheapimp ./testheapmgr1
-# ./testheapimp ./testheapmgr2
+./testheapimp ./testheapmgr2

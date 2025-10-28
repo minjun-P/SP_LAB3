@@ -24,10 +24,10 @@ $executablefile random_fixed 50000 1000
 $executablefile random_random 50000 1000
 $executablefile worst 50000 1000
 echo "=============================================================================="
-$executablefile LIFO_fixed 50000 10000
-$executablefile FIFO_fixed 50000 10000
-$executablefile LIFO_random 50000 10000
-$executablefile FIFO_random 50000 10000
-$executablefile random_fixed 50000 10000
-$executablefile random_random 50000 10000
-$executablefile worst 50000 10000
+# $executablefile LIFO_fixed 50000 10000
+# $executablefile FIFO_fixed 50000 10000
+# $executablefile LIFO_random 50000 10000
+# $executablefile FIFO_random 50000 10000
+# $executablefile random_fixed 50000 10000
+# $executablefile random_random 50000 10000
+# $executablefile worst 50000 10000

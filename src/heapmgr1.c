@@ -25,9 +25,10 @@ static int check_heap_validity(void) {
 
     if (s_heap_lo == NULL) { fprintf(stderr, "Uninitialized heap start\n"); return FALSE; }
     if (s_heap_hi == NULL) { fprintf(stderr, "Uninitialized heap end\n");   return FALSE; }
-
     if (s_heap_lo == s_heap_hi) {
-        if (s_free_head == NULL) return TRUE;
+        if (s_free_head == NULL) {
+            return TRUE;
+        }
         fprintf(stderr, "Inconsistent empty heap\n");
         return FALSE;
     }
@@ -54,6 +55,7 @@ static int check_heap_validity(void) {
             return FALSE;
         }
     }
+
 
     return TRUE;
 }
@@ -99,10 +101,17 @@ static Chunk_T coalesce_two(Chunk_T h_a, Chunk_T h_b) {
     assert(chunk_get_next(h_a, s_heap_lo, s_heap_hi) == h_b);
     int span_a = chunk_get_span_units(h_a);
     int span_b = chunk_get_span_units(h_b);
-    Chunk_T prev_of_a = footer_chunk_get_prev_free(footer_from_header(h_a));
+
+    Chunk_T prev = footer_chunk_get_prev_free(footer_from_header(h_a));
+    Chunk_T next = header_chunk_get_next_free(h_b);
+
     header_chunk_set_span_units(h_a, span_a + span_b);
-    header_chunk_set_next_free(h_a, header_chunk_get_next_free(h_b));
-    footer_chunk_set_prev_free(footer_from_header(h_a), prev_of_a);
+    // free-list 링크: prev <-> h_a <-> next
+    header_chunk_set_next_free(h_a, next);
+    if (next) {
+        footer_chunk_set_prev_free(footer_from_header(next), h_a);
+    }
+    footer_chunk_set_prev_free(footer_from_header(h_a), prev);
     return h_a;
 }
 
@@ -114,7 +123,7 @@ static Chunk_T split_for_alloc(Chunk_T h_c, size_t need_payload_units) {
 
     assert (h_c >= (Chunk_T)s_heap_lo && h_c <= (Chunk_T)s_heap_hi);
     assert (chunk_is_allocated(h_c) == FALSE);
-    assert (remain_span > 2); // 의문인건... 2보단 더 커야 하지 않나?
+    assert (remain_span >= 2); // 의문인건... 2보단 더 커야 하지 않나?
 
     /*원래 블록 span을 줄여주자*/
     header_chunk_set_span_units(h_c, remain_span);
@@ -151,21 +160,17 @@ static Chunk_T freelist_insert_between(Chunk_T prev_h_c, Chunk_T next_h_c, Chunk
     header_chunk_set_next_free(h_c, next_h_c);
     footer_chunk_set_prev_free(footer_from_header(h_c), prev_h_c);
 
-    if (!prev_h_c && !next_h_c) {
-        assert(s_free_head == NULL);
+    if (prev_h_c) {
+        header_chunk_set_next_free(prev_h_c, h_c);
+    } else {
         s_free_head = h_c;
     }
 
-    if (prev_h_c) {
-        header_chunk_set_next_free(prev_h_c, h_c);
-    }
-
-    if (next_h_c) {
-        footer_chunk_set_prev_free(footer_from_header(next_h_c), h_c);
-    }
+    if (next_h_c) footer_chunk_set_prev_free(footer_from_header(next_h_c), h_c);
 
     // lower 병합 if needed
-    if (chunk_get_prev(h_c, s_heap_lo, s_heap_hi) == prev_h_c) {
+    Chunk_T prev = chunk_get_prev(h_c, s_heap_lo, s_heap_hi);
+    if (prev && prev == prev_h_c) {
         h_c = coalesce_two(prev_h_c, h_c);
     }
 
@@ -180,7 +185,6 @@ static Chunk_T freelist_insert_between(Chunk_T prev_h_c, Chunk_T next_h_c, Chunk
 static Chunk_T
 sys_grow_and_link(Chunk_T prev, size_t need_units)
 {
-    assert(chunk_is_header(prev));
     Chunk_T new_h_c;
     size_t grow_data = (need_units < SYS_MIN_ALLOC_UNITS) ? SYS_MIN_ALLOC_UNITS : need_units;
     size_t grow_span = 2 + grow_data;  /* header + payload units + footer*/
@@ -190,7 +194,6 @@ sys_grow_and_link(Chunk_T prev, size_t need_units)
         return NULL;
 
     s_heap_hi = sbrk(0); // 현재 위치 가쟈와서 힙의 끝을 표현하는 변수에 세팅
-
     header_chunk_init(new_h_c);
     header_chunk_set_span_units(new_h_c, (int)grow_span);
     header_chunk_set_next_free(new_h_c, NULL);
@@ -210,16 +213,21 @@ static void freelist_detach(Chunk_T prev_h_c, Chunk_T h_c) {
     assert(!chunk_is_allocated(h_c));
     // h_c가 헤드인 경우는 h_c를 링크드 리스트 맨 앞에 있는 놈을 갈아끼는 케이스라고 상상하자.
 
+    Chunk_T next = header_chunk_get_next_free(h_c);
+
     if (prev_h_c == NULL) { // 이 자리에 NULL 넘기면 h_c를 헤드라고 치자
-        s_free_head = header_chunk_get_next_free(h_c); // 헤드 자리 넘겨줘야지
+        s_free_head = next; // 헤드 자리 넘겨줘야지
     } else {
-        header_chunk_set_next_free(prev_h_c, header_chunk_get_next_free(h_c));
+        header_chunk_set_next_free(prev_h_c, next);
+    }
+
+    if(next) {
+        footer_chunk_set_prev_free(footer_from_header(next), prev_h_c);
     }
 
     header_chunk_set_next_free(h_c, NULL);
     header_chunk_set_status_allocated(h_c);
 }
-
 
 
 void *heapmgr_malloc(size_t ui_bytes)
@@ -229,55 +237,61 @@ void *heapmgr_malloc(size_t ui_bytes)
     size_t need_payload_units;
 
     if (ui_bytes == 0) return NULL;
-    if (!booted) {heap_bootstrap(); booted=TRUE;}
+    if (!booted) { heap_bootstrap(); booted = TRUE; }
+
     assert(check_heap_validity());
 
-    need_payload_units = bytes_to_payload_units(ui_bytes); // 여기선 그냥 헤더 푸터 크기 빼고
+    need_payload_units = bytes_to_payload_units(ui_bytes); // payload 유닛(헤더/푸터 제외)
     prevprev = NULL;
     prev = NULL;
 
-    for (
-        cur = s_free_head; // 현재 free list의 head부터 순회
-        cur!= NULL; // cur이 NULL이 될 때까지는 계속 반복
-        cur = header_chunk_get_next_free(cur)
-    ) {
-        size_t cur_payload = (size_t) chunk_get_span_units(cur) -2;
-        if (cur_payload >= need_payload_units) { // big enough
-            if (cur_payload > need_payload_units) { // big
-                // 쪼개고 detach된 놈을 리턴해준다.
+    /* 1) first-fit 검색 */
+    for (cur = s_free_head; cur != NULL; cur = header_chunk_get_next_free(cur)) {
+        int old_span   = chunk_get_span_units(cur);     // 헤더~푸터 포함 유닛 수
+        int alloc_span = (int)(need_payload_units + 2); // 헤더+payload+푸터
+        int remain     = old_span - alloc_span;
+        size_t cur_payload = (size_t)old_span - 2;      // 현재 블록 payload 유닛
+
+        if (cur_payload >= need_payload_units) {
+            if (cur_payload > need_payload_units && remain >= 3) {
+                /* 남는 블록이 최소 헤더+1유닛+푸터(=3)일 때만 split */
                 cur = split_for_alloc(cur, need_payload_units);
-            } else { //exactlly same
+            } else {
+                /* remain <= 2 이면 split 금지 */
                 freelist_detach(prev, cur);
             }
             assert(check_heap_validity());
-            return (void*)((char*) cur + CHUNK_UNIT); // 헤더 말고, 데이터 페이로드 포인터 리턴
+            return (void *)((char *)cur + CHUNK_UNIT); // payload 포인터
         }
-        // 다음 순회로 가기 전에, prevprev랑 prev 업뎃해주기
+
         prevprev = prev;
         prev = cur;
     }
 
-    // 반복문을 다 탈출했다면 기존 freelist에서 리턴할 블록을 찾지 못했단 소리임.
-
-    // 여기서 Prev에는 기존의 cur이 담겨 있다. - 위 반복문 참조 -
+    /* 2) 못 찾았으면 힙을 키우고 동일 로직 적용 */
     cur = sys_grow_and_link(prev, need_payload_units);
-    if (cur == NULL) {// 힙 크기 늘리기 실패했단 소리
+    if (cur == NULL) {
         assert(check_heap_validity());
         return NULL;
     }
 
-    // 때때로 새로 만들어낸 cur가 prev랑 바로 merged되어서 나오는 경우가 있음.
+    /* 신규 블록이 prev와 합쳐져 cur==prev가 된 경우 */
     if (cur == prev) prev = prevprev;
 
-    // 최종 detach 
-    if ((size_t)chunk_get_span_units(cur) - 2 > need_payload_units) { // bigger
-        cur = split_for_alloc(cur, need_payload_units);
-    } else { // exactly same
-        freelist_detach(prev, cur);
+    {
+        int old_span   = chunk_get_span_units(cur);
+        int alloc_span = (int)(need_payload_units + 2);
+        int remain     = old_span - alloc_span;
+
+        if ((size_t)old_span - 2 > need_payload_units && remain >= 3) {
+            cur = split_for_alloc(cur, need_payload_units);
+        } else {
+            freelist_detach(prev, cur);
+        }
     }
 
     assert(check_heap_validity());
-    return (void*)((char*)cur + CHUNK_UNIT);
+    return (void *)((char *)cur + CHUNK_UNIT);
 }
 
 
@@ -290,28 +304,15 @@ void heapmgr_free(void *pv_bytes)
     assert(chunk_is_allocated(h_c));
 
     // 순회하면서 insertion point 찾기. starts from head
-    Chunk_T it_h = s_free_head;
-    Chunk_T next_it_h = NULL; 
-    while(it_h != NULL) {
-        next_it_h = header_chunk_get_next_free(it_h);
-        if (next_it_h == NULL) {
-            break;
-        }
-        // 여기까지 왔으면 it와 next_it 모두 not null, 하나라도 null이면 진즉 포지션 찾기 종료
-        // right position인지 체크
-
-        if (it_h < h_c && h_c < next_it_h) {
-            break;
-        }
-        if (h_c < it_h) {
-            it_h = footer_chunk_get_prev_free(footer_from_header(it_h)); // 한 칸 뒤로
-        } 
-        if (h_c > next_it_h) {
-            it_h = next_it_h;
-        }
+    // 순방향 단일 패스: prev < h_c <= curr
+    Chunk_T prev = NULL;
+    Chunk_T curr = s_free_head;
+    while (curr && curr < h_c) {
+        prev = curr;
+        curr = header_chunk_get_next_free(curr);
     }
 
-    freelist_insert_between(it_h, next_it_h, h_c);
+    freelist_insert_between(prev, curr, h_c);
 
     assert(check_heap_validity());
 
