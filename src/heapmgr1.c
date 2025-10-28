@@ -102,7 +102,7 @@ static Chunk_T coalesce_two(Chunk_T h_a, Chunk_T h_b) {
     Chunk_T prev_of_a = footer_chunk_get_prev_free(footer_from_header(h_a));
     header_chunk_set_span_units(h_a, span_a + span_b);
     header_chunk_set_next_free(h_a, header_chunk_get_next_free(h_b));
-    footer_chunk_set_prev_free(h_a, prev_of_a);
+    footer_chunk_set_prev_free(footer_from_header(h_a), prev_of_a);
     return h_a;
 }
 
@@ -141,22 +141,27 @@ static Chunk_T split_for_alloc(Chunk_T h_c, size_t need_payload_units) {
 static Chunk_T freelist_insert_between(Chunk_T prev_h_c, Chunk_T next_h_c, Chunk_T h_c) {
     assert(prev_h_c == NULL || chunk_is_header(prev_h_c));
     assert(next_h_c == NULL || chunk_is_header(next_h_c));
-    assert(chunk_is_header(h_c));
+    assert(h_c && chunk_is_header(h_c));
     assert(chunk_get_span_units(h_c) >=2);
-    if (prev_h_c == NULL && next_h_c == NULL) { // 이 경우 init하는 경우밖에 없음
+    assert(chunk_is_allocated(h_c));
+
+    // free로 만들기
+    header_chunk_set_status_free(h_c);
+
+    header_chunk_set_next_free(h_c, next_h_c);
+    footer_chunk_set_prev_free(footer_from_header(h_c), prev_h_c);
+
+    if (!prev_h_c && !next_h_c) {
         assert(s_free_head == NULL);
         s_free_head = h_c;
-        header_chunk_set_next_free(h_c, NULL);
-        footer_chunk_set_prev_free(footer_from_header(h_c), NULL);
-    } else if (prev_h_c == NULL && next_h_c != NULL) { // 맨 앞에 insert하는 경우
-        header_chunk_set_next_free(h_c, next_h_c);
-        footer_chunk_set_prev_free(footer_from_header(h_c), NULL);
-    } else if (prev_h_c != NULL && next_h_c == NULL) { // 맨 뒤에 insert하는 경우
-        header_chunk_set_next_free(h_c, NULL);
-        footer_chunk_set_prev_free(footer_from_header(h_c), prev_h_c);
-    } else { // 중간쯤 insert하는 경우  
-        header_chunk_set_next_free(h_c, next_h_c);
-        footer_chunk_set_prev_free(footer_from_header(h_c), prev_h_c);
+    }
+
+    if (prev_h_c) {
+        header_chunk_set_next_free(prev_h_c, h_c);
+    }
+
+    if (next_h_c) {
+        footer_chunk_set_prev_free(footer_from_header(next_h_c), h_c);
     }
 
     // lower 병합 if needed
@@ -194,7 +199,7 @@ sys_grow_and_link(Chunk_T prev, size_t need_units)
     Chunk_T new_f_c = footer_from_header(new_h_c);
     footer_chunk_set_prev_free(new_f_c, prev);
 
-    freelist_insert_between(prev, new_h_c, NULL);
+    freelist_insert_between(prev, NULL, new_h_c);
 
     assert(check_heap_validity());
 
@@ -212,7 +217,7 @@ static void freelist_detach(Chunk_T prev_h_c, Chunk_T h_c) {
     }
 
     header_chunk_set_next_free(h_c, NULL);
-    header_chunk_set_status_free(h_c);
+    header_chunk_set_status_allocated(h_c);
 }
 
 
