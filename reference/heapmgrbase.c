@@ -90,7 +90,7 @@ check_heap_validity(void)
 static size_t
 bytes_to_payload_units(size_t bytes)
 {
-    return (bytes + (CHUNK_UNIT - 1)) / CHUNK_UNIT;
+    return (bytes + (CHUNK_UNIT - 1)) / CHUNK_UNIT; 
 }
 
 /*--------------------------------------------------------------------*/
@@ -101,7 +101,7 @@ bytes_to_payload_units(size_t bytes)
 static Chunk_T
 header_from_payload(void *p)
 {
-    return (Chunk_T)((char *)p - CHUNK_UNIT);
+    return (Chunk_T)((char *)p - CHUNK_UNIT); // 헤더가 16바이트임 (4 + 4 + 8), UNIT도 16임. 그만큼 뒤로 감. 이러면 헤더 포인터임. 
 }
 
 /*--------------------------------------------------------------------*/
@@ -112,7 +112,7 @@ header_from_payload(void *p)
 static void
 heap_bootstrap(void)
 {
-    s_heap_lo = s_heap_hi = sbrk(0);
+    s_heap_lo = s_heap_hi = sbrk(0); // 현재 할당된 힙의 끝 주소를 알아내서, 그 주소를 힙의 시작과 끝으로 초기화 시킴.
     if (s_heap_lo == (void *)-1) {
         fprintf(stderr, "sbrk(0) failed\n");
         exit(-1);
@@ -162,7 +162,7 @@ split_for_alloc(Chunk_T c, size_t need_units)
 {
     Chunk_T alloc;
     int old_span    = chunk_get_span_units(c);
-    int alloc_span  = (int)(1 + need_units);
+    int alloc_span  = (int)(1 + need_units); // 헤더 1개 + 필요 유닛 수
     int remain_span = old_span - alloc_span;
 
     assert(c >= (Chunk_T)s_heap_lo && c <= (Chunk_T)s_heap_hi);
@@ -198,9 +198,9 @@ freelist_push_front(Chunk_T c)
         chunk_set_next_free(c, NULL);
     }
     else {
-        assert(c < s_free_head);
-        chunk_set_next_free(c, s_free_head);
-        if (chunk_get_adjacent(c, s_heap_lo, s_heap_hi) == s_free_head)
+        assert(c < s_free_head); // 헤드가 더 나중이야 햔다는거지?
+        chunk_set_next_free(c, s_free_head); // c의 next를 헤드로 하고
+        if (chunk_get_adjacent(c, s_heap_lo, s_heap_hi) == s_free_head) // 인접했으면
             coalesce_two(c, s_free_head);
         s_free_head = c;
     }
@@ -284,11 +284,11 @@ sys_grow_and_link(Chunk_T prev, size_t need_units)
     if (c == (Chunk_T)-1)
         return NULL;
 
-    s_heap_hi = sbrk(0);
+    s_heap_hi = sbrk(0); // 현재 위치 가쟈와서 힙의 끝을 표현하는 변수에 세팅
 
     chunk_set_span_units(c, (int)grow_span);
     chunk_set_next_free(c, NULL);
-    chunk_set_status(c, CHUNK_USED);   /* will flip to FREE once inserted */
+    chunk_set_status(c, CHUNK_USED);   /* will flip to FREE once inserted . 기존 함수 재활용하기 위해서 CHUNK_USED로 써놓음.*/
 
     if (s_free_head == NULL)
         freelist_push_front(c);
