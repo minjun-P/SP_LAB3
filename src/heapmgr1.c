@@ -1,5 +1,6 @@
 
 #include <stdlib.h>
+#include <assert.h>
 #include "chunk.h"
 
 #define FALSE 0
@@ -34,11 +35,11 @@ static int check_heap_validity(void) {
     /* 모든 물리적 블록을 주소 순서대로 순회 */
     for (w = (Chunk_T)s_heap_lo;
          w && w < (Chunk_T)s_heap_hi;
-         w = chunk_get_adjacent(w, s_heap_lo, s_heap_hi)) {
+         w = chunk_get_next(w, s_heap_lo, s_heap_hi)) {
         if (!chunk_is_valid(w, s_heap_lo, s_heap_hi)) return FALSE;
     }
 
-    for (w = s_free_head; w; w = chunk_get_next_free(w)) {
+    for (w = s_free_head; w; w = header_chunk_get_next_free(w)) {
         Chunk_T n;
 
         if (chunk_is_allocated(w)) {
@@ -47,8 +48,8 @@ static int check_heap_validity(void) {
         }
         if (!chunk_is_valid(w, s_heap_lo, s_heap_hi)) return FALSE;
 
-        n = chunk_get_adjacent(w, s_heap_lo, s_heap_hi);
-        if (n != NULL && n == chunk_get_next_free(w)) {
+        n = chunk_get_next(w, s_heap_lo, s_heap_hi);
+        if (n != NULL && n == header_chunk_get_next_free(w)) {
             fprintf(stderr, "Uncoalesced adjacent free chunks\n");
             return FALSE;
         }
@@ -72,11 +73,6 @@ static Chunk_T footer_from_header(Chunk_T h_c) {
     return (Chunk_T)((char *)h_c + (span_units - 1) * CHUNK_UNIT);
 }
 
-static Chunk_T header_from_footer(Chunk_T f_c) {
-    assert(!chunk_is_header(f_c));
-    int span_units = chunk_get_span_units(f_c);
-    return (Chunk_T)((char *)f_c - (span_units -1) * CHUNK_UNIT);
-}
 
 
 
@@ -138,22 +134,6 @@ static Chunk_T split_for_alloc(Chunk_T h_c, size_t need_payload_units) {
     return alloc;
 }
 
-static void freelist_push_front(Chunk_T h_c) {
-    assert(chunk_is_header(h_c));
-    assert(chunk_get_span_units(h_c) >=2);
-    
-    header_chunk_set_status_free(h_c);
-
-    if (s_free_head == NULL) { // free list를 초기화하는 경우?!
-        s_free_head = h_c;
-        header_chunk_set_next_free(h_c, NULL);
-        footer_chunk_set_prev_free(footer_from_header(h_c), NULL);
-    } else {
-        assert(h_c < s_free_head); // push front 함수니깐, 당연히 head보단 뒤에 있을거임
-        
-    }
-
-}
 /*
     예시 코드에서는 push front랑 insert after로 나뉘어져 있었는데 
     그냥 between으로 합침. ptr연결을 어차피 앞뒤로 해주어야 함.
